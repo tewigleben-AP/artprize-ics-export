@@ -19,7 +19,7 @@ exports.handler = async (event) => {
     }
 
     // Prepare file content as a buffer
-    const fileBuffer = Buffer.from(content, "utf-8");
+    const fileBuffer = Buffer.from(content, "base64");
 
     // Build the form data for Cloudinary
     const form = new FormData();
