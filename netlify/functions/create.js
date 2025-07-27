@@ -16,8 +16,11 @@ exports.handler = async (event) => {
       };
     }
 
-    const slug = Date.now() + "-" + filename.replace(/[^a-z0-9\-_\.]/gi, "_");
-    const fileUrl = `https://${process.env.URL || "yoursite.netlify.app"}/files/${slug}`;
+    // Encode .ics content to base64
+    const base64Content = Buffer.from(content).toString("base64");
+
+    // Construct a data URL
+    const dataUrl = `data:text/calendar;base64,${base64Content}`;
 
     return {
       statusCode: 200,
@@ -25,12 +28,16 @@ exports.handler = async (event) => {
         "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ url: fileUrl })
+      body: JSON.stringify({
+        url: dataUrl,
+        filename
+      })
     };
   } catch (e) {
     return {
       statusCode: 500,
-      body: "Error: " + e.message
+      body: "Server error: " + e.message
     };
   }
 };
+
