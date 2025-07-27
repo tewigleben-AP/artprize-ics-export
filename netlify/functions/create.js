@@ -1,71 +1,63 @@
-const fetch = require("node-fetch");
-const FormData = require("form-data");
+const cloudinary = require('cloudinary').v2;
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 exports.handler = async (event) => {
+  console.log("📥 Received request");
+
   try {
-    console.log("📥 Received request");
+    const { filename, content } = JSON.parse(event.body);
+    console.log("🔍 Parsed body:", { filename });
 
-    const body = JSON.parse(event.body);
-    console.log("🔍 Parsed body:", body);
+    // Decode Base64 ICS content
+    const buffer = Buffer.from(content, 'base64');
+    console.log("📦 Decoded buffer size:", buffer.length);
 
-    const { filename = "event.ics", content } = body;
+    // Upload to Cloudinary
+    const result = await cloudinary.uploader.upload_stream(
+      {
+        public_id: filename.replace(/\.ics$/, ''),
+        resource_type: "raw", // critical for non-image files like .ics
+        format: "ics",
+        overwrite: true,
+      },
+      (error, result) => {
+        if (error) {
+          console.error("🚫 Upload failed", error);
+          return {
+            statusCode: 500,
+            body: JSON.stringify({ error: error.message }),
+          };
+        }
 
-    if (!content) {
-      console.error("❌ No .ics content provided");
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing .ics content" }),
-      };
-    }
+        console.log("✅ Cloudinary response:", result);
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            url: result.secure_url,
+            filename: result.original_filename + ".ics"
+          }),
+        };
+      }
+    );
 
-    const fileBuffer = Buffer.from(content, "base64");
-    console.log("📦 Decoded buffer size:", fileBuffer.length);
-
-    const form = new FormData();
-    form.append("file", fileBuffer, {
-      filename,
-      contentType: "text/calendar"
-    });
-    form.append("upload_preset", "unsigned"); // or use your signed preset
-    form.append("public_id", filename.replace(/\.ics$/, ""));
-    form.append("folder", "artprize-events");
-
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
-
-    const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`;
-    console.log("🌐 Uploading to:", uploadUrl);
-
-    const response = await fetch(uploadUrl, {
-      method: "POST",
-      headers: form.getHeaders(),
-      body: form,
-    });
-
-    const result = await response.json();
-    console.log("✅ Cloudinary response:", result);
-
-    if (!result.secure_url) {
-      console.error("🚫 Upload failed", result);
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Upload failed", details: result }),
-      };
-    }
+    // Stream buffer into Cloudinary
+    require("streamifier").createReadStream(buffer).pipe(result);
 
     return {
-      statusCode: 200,
-      body: JSON.stringify({
-        url: result.secure_url,
-        filename: filename,
-      }),
+      statusCode: 202,
+      body: JSON.stringify({ message: "Upload started" }),
     };
+
   } catch (err) {
-    console.error("🔥 Error during handler execution:", err.message);
+    console.error("🔥 Unexpected error", err);
     return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
+      statusCode: 400,
+      body: JSON.stringify({ error: "Invalid request format." }),
     };
   }
 };
