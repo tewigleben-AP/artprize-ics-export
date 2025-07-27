@@ -2,73 +2,70 @@ const fetch = require("node-fetch");
 const FormData = require("form-data");
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      body: "Method Not Allowed"
-    };
-  }
-
   try {
-    const { filename = "event.ics", content } = JSON.parse(event.body);
+    console.log("📥 Received request");
+
+    const body = JSON.parse(event.body);
+    console.log("🔍 Parsed body:", body);
+
+    const { filename = "event.ics", content } = body;
+
     if (!content) {
+      console.error("❌ No .ics content provided");
       return {
         statusCode: 400,
-        body: "Missing .ics content"
+        body: JSON.stringify({ error: "Missing .ics content" }),
       };
     }
 
-    // Prepare file content as a buffer
     const fileBuffer = Buffer.from(content, "base64");
+    console.log("📦 Decoded buffer size:", fileBuffer.length);
 
-    // Build the form data for Cloudinary
     const form = new FormData();
     form.append("file", fileBuffer, {
       filename,
       contentType: "text/calendar"
     });
-    form.append("upload_preset", "artprize_ics"); // Optional: use unsigned preset or set folder
-    form.append("public_id", filename.replace(/\.ics$/, "")); // No extension
-    form.append("folder", "artprize/ics"); // Optional folder path
+    form.append("upload_preset", "unsigned"); // or use your signed preset
+    form.append("public_id", filename.replace(/\.ics$/, ""));
+    form.append("folder", "artprize-events");
 
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`;
+    const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`;
+    console.log("🌐 Uploading to:", uploadUrl);
 
-    const auth = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
-
-    const response = await fetch(cloudinaryUrl, {
+    const response = await fetch(uploadUrl, {
       method: "POST",
-      headers: {
-        Authorization: `Basic ${auth}`,
-        ...form.getHeaders()
-      },
-      body: form
+      headers: form.getHeaders(),
+      body: form,
     });
 
-    const data = await response.json();
+    const result = await response.json();
+    console.log("✅ Cloudinary response:", result);
 
-    if (!data.secure_url) {
-      throw new Error("Upload failed: " + JSON.stringify(data));
+    if (!result.secure_url) {
+      console.error("🚫 Upload failed", result);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "Upload failed", details: result }),
+      };
     }
 
     return {
       statusCode: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json"
-      },
       body: JSON.stringify({
-        url: data.secure_url,
-        filename
-      })
+        url: result.secure_url,
+        filename: filename,
+      }),
     };
   } catch (err) {
+    console.error("🔥 Error during handler execution:", err.message);
     return {
       statusCode: 500,
-      body: "Error: " + err.message
+      body: JSON.stringify({ error: err.message }),
     };
   }
 };
